@@ -7,7 +7,7 @@ import {
   isRedSuit,
   shuffleDeck,
 } from "./poker.js";
-import { decideAIAction } from "./ai.js";
+import { decideAIAction, loadStrategyFile } from "./ai.js";
 
 const STARTING_CHIPS = 1000;
 const SMALL_BLIND = 10;
@@ -46,9 +46,11 @@ const gameState = {
 
 const elements = {};
 
-document.addEventListener("DOMContentLoaded", initGame);
+document.addEventListener("DOMContentLoaded", () => {
+  void initGame();
+});
 
-function initGame() {
+async function initGame() {
   elements.playerChips = document.querySelector("#player-chips");
   elements.aiChips = document.querySelector("#ai-chips");
   elements.pot = document.querySelector("#pot");
@@ -74,6 +76,15 @@ function initGame() {
   elements.foldButton.addEventListener("click", () => handlePlayerAction("fold"));
   elements.newHandButton.addEventListener("click", startNewHand);
   elements.amountInput.addEventListener("change", normalizeAmountInput);
+
+  const strategyLoaded = await loadStrategyFile("strategy.json");
+  if (strategyLoaded) {
+    gameState.messages = ["已載入離線策略檔 strategy.json。"];
+    gameState.message = gameState.messages[0];
+  } else {
+    gameState.messages = ["未載入 strategy.json，改用內建即時計算策略。"];
+    gameState.message = gameState.messages[0];
+  }
 
   renderGame();
 }

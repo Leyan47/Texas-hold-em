@@ -3,4 +3,6 @@ export {
   decideAIAction,
   estimateHandStrength,
   getSolverStrategyTable,
+  getSolverStrategySource,
+  loadStrategyFile,
 } from "./solverLikeStrategy.js";

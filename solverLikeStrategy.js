@@ -39,6 +39,7 @@ const STAGE_THRESHOLDS = {
 };
 
 let solverStrategyTable;
+let solverStrategySource = "generated-fallback";
 
 export function decideAIAction(gameState) {
   const stage = normalizeStage(gameState.stage);
@@ -179,9 +180,73 @@ export function buildAbstractGameTree() {
 export function getSolverStrategyTable() {
   if (!solverStrategyTable) {
     solverStrategyTable = trainMCCFRStrategy({ iterations: 160 });
+    solverStrategySource = "generated-fallback";
   }
 
   return solverStrategyTable;
+}
+
+export function setSolverStrategyTable(table, source = "external-file") {
+  solverStrategyTable = table;
+  solverStrategySource = table ? source : "generated-fallback";
+}
+
+export function getSolverStrategySource() {
+  return solverStrategySource;
+}
+
+export async function loadStrategyFile(url = "strategy.json") {
+  if (typeof fetch !== "function") {
+    return false;
+  }
+
+  try {
+    const response = await fetch(url, { cache: "no-store" });
+    if (!response.ok) {
+      return false;
+    }
+
+    const payload = await response.json();
+    setSolverStrategyTable(hydrateStrategyTable(payload), url);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function serializeStrategyTable(table, {
+  iterations = 0,
+  generatedAt = new Date().toISOString(),
+} = {}) {
+  const strategy = {};
+  const sortedEntries = [...table.entries()].sort(([keyA], [keyB]) => keyA.localeCompare(keyB));
+
+  for (const [key, frequencies] of sortedEntries) {
+    strategy[key] = normalizeFrequencies(frequencies);
+  }
+
+  return {
+    version: 1,
+    generatedAt,
+    iterations,
+    bettingSizes: [...BETTING_SIZE_SET],
+    informationSetCount: sortedEntries.length,
+    strategy,
+  };
+}
+
+export function hydrateStrategyTable(payload) {
+  if (!payload || payload.version !== 1 || !payload.strategy || typeof payload.strategy !== "object") {
+    throw new Error("Invalid strategy payload");
+  }
+
+  const table = new Map();
+
+  for (const [key, frequencies] of Object.entries(payload.strategy)) {
+    table.set(key, normalizeFrequencies(frequencies));
+  }
+
+  return table;
 }
 
 export function trainMCCFRStrategy({ iterations = 160 } = {}) {

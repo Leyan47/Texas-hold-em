@@ -8,8 +8,8 @@ import { getPreflopRangeWeight } from "./preflopCharts.js";
 
 export const MONTE_CARLO_SAMPLES = {
   preflop: 350,
-  flop: 600,
-  turn: 800,
+  flop: 1200,
+  turn: 1200,
   river: 1200,
 };
 
