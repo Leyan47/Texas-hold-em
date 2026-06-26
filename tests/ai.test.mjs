@@ -4,6 +4,7 @@ import {
   BETTING_SIZE_SET,
   buildAbstractGameTree,
   getSolverStrategyTable,
+  setSolverStrategyTable,
 } from "../solverLikeStrategy.js";
 import {
   getPreflopHandKey,
@@ -130,6 +131,35 @@ test("AI uses pot odds call metadata when facing a bet and raises are unavailabl
     assert.equal(typeof decision.equity, "number");
     assert.ok(decision.equity > 0.95);
   });
+});
+
+test("AI does not turn pure trash into a bluff raise without draw or blockers", () => {
+  setSolverStrategyTable(new Map());
+
+  try {
+    withMockedRandom([0.5, 0.99], () => {
+      const decision = decideAIAction({
+        aiCards: [c("7", "clubs"), c("2", "diamonds")],
+        communityCards: [],
+        stage: "preflop",
+        aiChips: 1000,
+        playerChips: 1000,
+        pot: 100,
+        currentBet: 500,
+        aiCurrentBet: 0,
+        playerCurrentBet: 500,
+        raiseCount: 0,
+        maxRaises: 2,
+        defaultBet: 50,
+        raiseAmount: 100,
+      });
+
+      assert.equal(decision.action, "fold");
+      assert.notEqual(decision.reason, "bluff-raise");
+    });
+  } finally {
+    setSolverStrategyTable(null);
+  }
 });
 
 test("preflop chart ranks premium pairs above weak offsuit hands", () => {

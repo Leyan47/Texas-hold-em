@@ -4,7 +4,6 @@ import {
   chooseRaiseExtra,
   deriveActionFrequencies,
   normalizeFrequencies,
-  regretMatchedStrategy,
 } from "./actionFrequency.js";
 import {
   estimateEquity,
@@ -20,8 +19,24 @@ import {
   estimateDrawPotential,
   getInformationSetKey,
 } from "./rangeModel.js";
+import {
+  applyTrainingAction,
+  createTrainingRootState,
+  evaluateTrainingTerminalUtility,
+  getLastTrainingStats,
+  getTrainingLegalActions,
+  trainRecursiveMCCFR,
+} from "./recursiveMccfr.js";
 
 export const BETTING_SIZE_SET = [0.33, 0.5, 0.75, 1];
+
+export {
+  applyTrainingAction,
+  createTrainingRootState,
+  evaluateTrainingTerminalUtility,
+  getLastTrainingStats,
+  getTrainingLegalActions,
+};
 
 const STAGES = ["preflop", "flop", "turn", "river"];
 const NODES = ["root", "facing-bet"];
@@ -217,18 +232,21 @@ export async function loadStrategyFile(url = "strategy.json") {
 export function serializeStrategyTable(table, {
   iterations = 0,
   generatedAt = new Date().toISOString(),
+  trainingStats = getLastTrainingStats(),
 } = {}) {
   const strategy = {};
   const sortedEntries = [...table.entries()].sort(([keyA], [keyB]) => keyA.localeCompare(keyB));
 
   for (const [key, frequencies] of sortedEntries) {
-    strategy[key] = normalizeFrequencies(frequencies);
+    strategy[key] = hydrateFrequencies(frequencies);
   }
 
   return {
     version: 1,
     generatedAt,
     iterations,
+    trainingMode: trainingStats?.mode ?? "recursive-mccfr",
+    trainingStats,
     bettingSizes: [...BETTING_SIZE_SET],
     informationSetCount: sortedEntries.length,
     strategy,
@@ -243,48 +261,14 @@ export function hydrateStrategyTable(payload) {
   const table = new Map();
 
   for (const [key, frequencies] of Object.entries(payload.strategy)) {
-    table.set(key, normalizeFrequencies(frequencies));
+    table.set(key, hydrateFrequencies(frequencies));
   }
 
   return table;
 }
 
-export function trainMCCFRStrategy({ iterations = 160 } = {}) {
-  const tree = buildAbstractGameTree();
-  const regretTable = new Map();
-  const strategySums = new Map();
-
-  for (const key of tree.informationSets) {
-    const legalActions = legalActionsForKey(key);
-    regretTable.set(key, Object.fromEntries(legalActions.map((action) => [action, 0])));
-    strategySums.set(key, Object.fromEntries(legalActions.map((action) => [action, 0])));
-  }
-
-  for (let iteration = 0; iteration < iterations; iteration += 1) {
-    for (const key of tree.informationSets) {
-      const legalActions = legalActionsForKey(key);
-      const regrets = regretTable.get(key);
-      const strategy = regretMatchedStrategy(regrets, legalActions);
-      const utilities = abstractUtilitiesForKey(key, legalActions);
-      const nodeUtility = legalActions.reduce(
-        (sum, action) => sum + strategy[action] * utilities[action],
-        0
-      );
-
-      for (const action of legalActions) {
-        regrets[action] += utilities[action] - nodeUtility;
-        strategySums.get(key)[action] += strategy[action];
-      }
-    }
-  }
-
-  const table = new Map();
-
-  for (const [key, sums] of strategySums.entries()) {
-    table.set(key, normalizeFrequencies(sums));
-  }
-
-  return table;
+export function trainMCCFRStrategy(options = {}) {
+  return trainRecursiveMCCFR(options);
 }
 
 function decideFacingBet(info) {
@@ -307,6 +291,14 @@ function decideFacingBet(info) {
   const thresholds = STAGE_THRESHOLDS[stage];
   const potOdds = toCall / (pot + toCall);
   const mdf = pot / (pot + toCall);
+  const isValueRaise = mixedEquity >= thresholds.valueRaise;
+  const isCredibleBluffRaise = canUseBluffRaiseCandidate({
+    stage,
+    mixedEquity,
+    potOdds,
+    drawScore,
+    blockerScore,
+  });
 
   if (!canRaise && mixedEquity >= potOdds) {
     return {
@@ -322,8 +314,8 @@ function decideFacingBet(info) {
 
   const action = chooseActionFromFrequency(filterRaiseFrequency(frequencies, canRaise));
 
-  if (action === "raise" && canRaise) {
-    const purpose = mixedEquity >= thresholds.valueRaise ? "value" : "bluff";
+  if (action === "raise" && canRaise && (isValueRaise || isCredibleBluffRaise)) {
+    const purpose = isValueRaise ? "value" : "bluff";
     return {
       action: "raise",
       amount: Math.min(chips, toCall + chooseRaiseExtra(gameState, boardTexture, purpose, BETTING_SIZE_SET)),
@@ -356,6 +348,22 @@ function decideFacingBet(info) {
     infoSetKey,
     actionFrequencies: frequencies,
   };
+}
+
+function canUseBluffRaiseCandidate({
+  stage,
+  mixedEquity,
+  potOdds,
+  drawScore,
+  blockerScore,
+}) {
+  if (stage === "river") {
+    return blockerScore >= 0.22 && mixedEquity >= 0.16;
+  }
+
+  return drawScore >= 0.25
+    || blockerScore >= 0.2
+    || mixedEquity >= Math.max(0.34, potOdds - 0.08);
 }
 
 function decideWhenCheckedTo(info) {
@@ -446,33 +454,20 @@ function fallbackInformationSetKey(info) {
   return `${info.stage}|${node}|${pressure}|${pot}|neutral|${equity}|${texture}`;
 }
 
-function legalActionsForKey(key) {
-  return key.includes("|facing-bet|") ? ["fold", "call", "raise"] : ["check", "bet"];
-}
-
-function abstractUtilitiesForKey(key, legalActions) {
-  const parts = key.split("|");
-  const node = parts[1];
-  const pressure = parts[2];
-  const equityBucket = parts[5];
-  const texture = parts[6];
-  const equityScore = abstractEquityScore(equityBucket);
-  const drawBonus = texture === "draw" ? 0.18 : texture === "blocker" ? 0.12 : 0;
-  const pressurePenalty = pressure === "high-pressure" ? 0.22 : pressure === "pressure" ? 0.1 : 0;
-  const utilities = {};
-
-  for (const action of legalActions) {
-    if (node === "facing-bet") {
-      if (action === "fold") utilities[action] = 0.25 - equityScore - drawBonus;
-      if (action === "call") utilities[action] = equityScore - pressurePenalty + drawBonus * 0.45;
-      if (action === "raise") utilities[action] = equityScore * 1.15 + drawBonus - pressurePenalty * 0.6 - 0.25;
-    } else {
-      if (action === "check") utilities[action] = 0.48 - equityScore * 0.28;
-      if (action === "bet") utilities[action] = equityScore * 1.1 + drawBonus - 0.22;
-    }
+function hydrateFrequencies(frequencies) {
+  if (!frequencies || typeof frequencies !== "object") {
+    return normalizeFrequencies({});
   }
 
-  return utilities;
+  const entries = Object.entries(frequencies)
+    .filter(([, value]) => Number.isFinite(value) && value >= 0);
+  const total = entries.reduce((sum, [, value]) => sum + value, 0);
+
+  if (entries.length > 0 && Math.abs(total - 1) < 1e-9) {
+    return Object.fromEntries(entries);
+  }
+
+  return normalizeFrequencies(Object.fromEntries(entries));
 }
 
 function filterRaiseFrequency(frequencies, canRaise) {
@@ -484,14 +479,6 @@ function filterRaiseFrequency(frequencies, canRaise) {
     fold: frequencies.fold ?? 0,
     call: frequencies.call ?? 0,
   });
-}
-
-function abstractEquityScore(bucket) {
-  if (bucket === "equity-nut") return 1;
-  if (bucket === "equity-high") return 0.78;
-  if (bucket === "equity-medium") return 0.5;
-  if (bucket === "equity-low") return 0.24;
-  return 0.05;
 }
 
 function normalizeStage(stage) {

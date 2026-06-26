@@ -8,6 +8,7 @@ import {
   shuffleDeck,
 } from "./poker.js";
 import { decideAIAction, loadStrategyFile } from "./ai.js";
+import { appendLogMessage } from "./uiMessages.js";
 
 const STARTING_CHIPS = 1000;
 const SMALL_BLIND = 10;
@@ -477,8 +478,7 @@ function normalizeAmountInput() {
 
 function addMessage(message) {
   gameState.message = message;
-  gameState.messages.unshift(message);
-  gameState.messages = gameState.messages.slice(0, 8);
+  gameState.messages = appendLogMessage(gameState.messages, message, 8);
 }
 
 function renderGame() {
