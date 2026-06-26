@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>單人德州撲克</title>
+    <link rel="stylesheet" href="style.css">
+  </head>
+  <body>
+    <main class="game-shell">
+      <section class="table-panel" aria-label="單人德州撲克遊戲桌">
+        <header class="top-bar">
+          <div>
+            <h1>單人德州撲克</h1>
+            <p>Player vs AI</p>
+          </div>
+          <button id="new-hand-button" class="primary-action" type="button">New Hand</button>
+        </header>
+
+        <section class="scoreboard" aria-label="遊戲狀態">
+          <div class="stat">
+            <span>玩家籌碼</span>
+            <strong id="player-chips">1000</strong>
+          </div>
+          <div class="stat">
+            <span>AI 籌碼</span>
+            <strong id="ai-chips">1000</strong>
+          </div>
+          <div class="stat pot-stat">
+            <span>底池</span>
+            <strong id="pot">0</strong>
+          </div>
+          <div class="stat">
+            <span>階段</span>
+            <strong id="stage">Idle</strong>
+          </div>
+          <div class="stat">
+            <span>目前下注</span>
+            <strong id="current-bet">0</strong>
+          </div>
+          <div class="stat">
+            <span>需跟注</span>
+            <strong id="to-call">0</strong>
+          </div>
+        </section>
+
+        <section class="seat ai-seat" aria-label="AI 手牌">
+          <div class="seat-heading">
+            <span>AI</span>
+            <small>未攤牌前蓋牌</small>
+          </div>
+          <div id="ai-cards" class="cards two-card-row"></div>
+        </section>
+
+        <section class="board" aria-label="公共牌">
+          <div class="section-label">Community Cards</div>
+          <div id="community-cards" class="cards board-row"></div>
+        </section>
+
+        <section class="seat player-seat" aria-label="玩家手牌">
+          <div class="seat-heading">
+            <span>Player</span>
+            <small>你的底牌</small>
+          </div>
+          <div id="player-cards" class="cards two-card-row"></div>
+        </section>
+
+        <section class="controls" aria-label="玩家操作">
+          <label class="amount-field" for="bet-amount">
+            <span>Bet / Raise</span>
+            <input id="bet-amount" type="number" min="1" max="1000" value="50" step="10">
+          </label>
+          <div class="button-row">
+            <button id="check-button" type="button">Check</button>
+            <button id="call-button" type="button">Call</button>
+            <button id="bet-button" type="button">Bet</button>
+            <button id="raise-button" type="button">Raise</button>
+            <button id="fold-button" class="danger-action" type="button">Fold</button>
+          </div>
+        </section>
+      </section>
+
+      <aside class="log-panel" aria-label="遊戲訊息">
+        <h2>訊息</h2>
+        <ol id="message-log"></ol>
+      </aside>
+    </main>
+
+    <script type="module" src="main.js"></script>
+  </body>
+</html>
