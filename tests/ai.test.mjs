@@ -1,5 +1,23 @@
 import assert from "node:assert/strict";
 import { decideAIAction } from "../ai.js";
+import {
+  BETTING_SIZE_SET,
+  buildAbstractGameTree,
+  getSolverStrategyTable,
+} from "../solverLikeStrategy.js";
+import {
+  getPreflopHandKey,
+  getPreflopRangeWeight,
+} from "../preflopCharts.js";
+import { estimateEquity } from "../equity.js";
+import {
+  buildPlayerRangeModel,
+  getInformationSetKey,
+} from "../rangeModel.js";
+import {
+  chooseActionFromFrequency,
+  normalizeFrequencies,
+} from "../actionFrequency.js";
 
 const c = (rank, suit) => ({ rank, suit });
 
@@ -112,4 +130,80 @@ test("AI uses pot odds call metadata when facing a bet and raises are unavailabl
     assert.equal(typeof decision.equity, "number");
     assert.ok(decision.equity > 0.95);
   });
+});
+
+test("preflop chart ranks premium pairs above weak offsuit hands", () => {
+  const aces = [c("A", "spades"), c("A", "hearts")];
+  const sevenTwo = [c("7", "clubs"), c("2", "diamonds")];
+
+  assert.equal(getPreflopHandKey(aces), "AA");
+  assert.equal(getPreflopHandKey(sevenTwo), "72o");
+  assert.ok(getPreflopRangeWeight(aces) > getPreflopRangeWeight(sevenTwo));
+});
+
+test("equity module estimates a made royal flush as nearly unbeatable", () => {
+  withMockedRandom([0.5], () => {
+    const equity = estimateEquity({
+      aiCards: [c("A", "spades"), c("K", "spades")],
+      communityCards: [
+        c("Q", "spades"),
+        c("J", "spades"),
+        c("10", "spades"),
+        c("2", "clubs"),
+        c("3", "diamonds"),
+      ],
+      stage: "river",
+      samples: 40,
+    });
+
+    assert.ok(equity > 0.95);
+  });
+});
+
+test("range model creates stable information set keys", () => {
+  const state = {
+    aiCards: [c("A", "spades"), c("K", "spades")],
+    communityCards: [c("Q", "spades"), c("J", "clubs"), c("2", "diamonds")],
+    stage: "flop",
+    pot: 180,
+    currentBet: 60,
+    aiCurrentBet: 20,
+    playerCurrentBet: 60,
+  };
+
+  const rangeModel = buildPlayerRangeModel(state);
+  const key = getInformationSetKey({
+    gameState: state,
+    equity: 0.62,
+    drawScore: 0.28,
+    blockerScore: 0.2,
+    rangeModel,
+  });
+
+  assert.match(key, /^flop\|/);
+  assert.match(key, /range-/);
+  assert.match(key, /equity-/);
+});
+
+test("abstract solver produces action frequencies for game-tree information sets", () => {
+  const tree = buildAbstractGameTree();
+  const table = getSolverStrategyTable();
+  const rootFrequencies = table.get("preflop|root|none|medium|neutral|equity-medium|dry");
+
+  assert.deepEqual(BETTING_SIZE_SET, [0.33, 0.5, 0.75, 1]);
+  assert.ok(tree.stages.includes("preflop"));
+  assert.ok(tree.stages.includes("river"));
+  assert.ok(rootFrequencies);
+
+  const total = Object.values(rootFrequencies).reduce((sum, value) => sum + value, 0);
+  assert.ok(Math.abs(total - 1) < 0.000001);
+});
+
+test("action frequency helper normalizes and samples mixed strategies", () => {
+  const frequencies = normalizeFrequencies({ check: 2, bet: 1, fold: 0 });
+  const action = chooseActionFromFrequency(frequencies, 0.8);
+
+  assert.equal(frequencies.check, 2 / 3);
+  assert.equal(frequencies.bet, 1 / 3);
+  assert.equal(action, "bet");
 });

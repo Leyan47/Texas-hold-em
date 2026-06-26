@@ -31,9 +31,9 @@ http://localhost:8000
 - 依序支援 Preflop、Flop、Turn、River、Showdown。
 - 玩家可 Check、Call、Bet、Raise、Fold。
 - Bet / Raise 金額可輸入，並會限制不超過玩家籌碼。
-- AI 會用 Monte Carlo 模擬估算 equity，並根據階段、跟注金額、底池大小與隨機性決策。
+- AI 會用抽象化 GTO 架構決策：定義遊戲樹、下注尺寸集合、preflop range、資訊集、MCCFR action frequency table，遊戲中查表並結合即時 equity。
+- AI 會用 Monte Carlo 模擬估算 equity，並根據階段、跟注金額、底池大小、玩家 range 與 action frequency 決策。
 - 面對下注時，AI 會參考 pot odds 與 MDF，避免只用「目前牌型強弱」決定跟注或棄牌。
-- AI 下注策略偏向 polarized：強牌 value bet / raise，聽牌與 blocker 牌可 semi-bluff / bluff，中等牌較常 check / call。
 - 支援 all-in 簡化處理，並會退還單挑中未被跟注的籌碼。
 - River 後會攤牌，AI 手牌在攤牌前保持蓋牌。
 - 多局遊玩時籌碼會累積或扣除，任一方籌碼歸零後下一局會重置為 1000。
@@ -44,20 +44,31 @@ http://localhost:8000
 - `style.css`：桌面、卡牌、籌碼資訊與響應式樣式。
 - `main.js`：遊戲狀態、下注流程、UI 更新、攤牌與底池分配。
 - `poker.js`：牌組、洗牌、發牌、7 選 5 最佳牌型、勝負比較。
-- `ai.js`：Monte Carlo equity、pot odds、MDF、draw / blocker 評分與 AI 行動決策。
+- `ai.js`：AI 對外 facade，保留 `decideAIAction()` 與 `estimateHandStrength()`。
+- `solverLikeStrategy.js`：抽象遊戲樹、下注尺寸集合、MCCFR 訓練與查表決策。
+- `preflopCharts.js`：完整 169 種 preflop hand class 的 range 權重。
+- `rangeModel.js`：玩家 range、資訊集 key、board texture、draw / blocker 評分。
+- `equity.js`：Monte Carlo equity 與剩餘牌組抽樣。
+- `actionFrequency.js`：混合策略頻率、regret matching、下注尺寸與 call probability。
 - `tests/poker.test.mjs`：牌型判斷的輕量自動測試。
 - `tests/ai.test.mjs`：AI all-in、防加注、value-bet 與 pot-odds call 策略測試。
 
 ## AI 策略
 
-`ai.js` 目前不是完整 GTO solver，但已比單純規則型 AI 更接近 solver 思維：
+AI 目前採用「抽象化 GTO / MCCFR」架構。它不是求解完整無限注 Texas Hold'em 的全狀態 solver；完整遊戲樹過大，不適合這個純前端小遊戲即時計算。但它已具備 solver 型 AI 的核心資料流：
 
+- 定義完整抽象遊戲樹：Preflop、Flop、Turn、River，每階段含 root / facing-bet 節點。
+- 定義下注尺寸集合：33%、50%、75%、100% pot。
+- 定義完整 preflop hand class range：169 種 pair / suited / offsuit 起手牌權重。
+- 定義資訊集：stage、節點、下注壓力、底池大小、玩家 range、equity bucket、board texture。
+- 使用簡化 MCCFR / regret matching 產生每個資訊集的 action frequency。
+- 遊戲中會先建立玩家 range、估算 equity，再用資訊集查 action frequency 決策。
 - Preflop 使用起手牌啟發式評分。
 - Flop / Turn / River 使用 Monte Carlo 模擬，估算 AI 手牌對隨機對手手牌與未發公共牌的勝率。
 - 面對下注時使用 `potOdds = toCall / (pot + toCall)` 判斷跟注門檻。
 - 使用 `MDF = pot / (pot + bet)` 提高最低防守頻率，減少被過度 bluff 剝削。
 - 使用 draw score 與 blocker score 讓聽牌、A / K blocker 有機會成為 semi-bluff 或 bluff。
-- 每個 AI 決策會保留 `equity` 與 `reason`，方便未來除錯或顯示更詳細的 AI 行為。
+- 每個 AI 決策會保留 `equity`、`reason`、`infoSetKey` 與 `actionFrequencies`，方便未來除錯或顯示更詳細的 AI 行為。
 
 ## 牌型支援
 
@@ -95,6 +106,11 @@ node --experimental-default-type=module tests/ai.test.mjs
 - 玩家已 All-in 時，AI 不會再加注造成流程卡住。
 - 強牌 checked-to 時，AI 會回傳 value-bet 策略理由與 equity。
 - 面對下注且不能再加注時，AI 會回傳 pot-odds-call 策略理由與 equity。
+- Preflop chart 會讓 AA 權重高於 72o。
+- Equity 模組能獨立估算 River royal flush 幾乎必勝。
+- Range model 會產生穩定資訊集 key。
+- 抽象 solver 會為遊戲樹資訊集輸出 action frequency。
+- Action frequency helper 會正規化並抽樣混合策略。
 
 ## 人工測試情境
 
